@@ -4,6 +4,9 @@ import { authorize, requireAuth } from "../../../middleware/auth.middleware.js";
 import { deleteSku } from "../../../controllers/skuController/sku.delete.controller.js";
 import { updateSku } from "../../../controllers/skuController/sku.edit.controller.js";
 import { hardSkuDelete } from "../../../controllers/skuController/sku.hard.del.controller.js";
+import { listSkus } from "../../../controllers/skuController/sku.getlist.controller.js";
+import { bulkImportSkus } from "../../../controllers/skuController/sku.bulk.import.controller.js";
+import { skuUpload } from "../../../utils/skuUpload.js";
 
 const router = express.Router();
 
@@ -24,4 +27,13 @@ router.delete(
   hardSkuDelete,
 );
 
+router.get("/list", requireAuth, listSkus);
+
+router.post(
+  "/bulk-import",
+  requireAuth,
+  authorize("admin", "logistics"),
+  skuUpload.single("file"),
+  bulkImportSkus,
+);
 export default router;
