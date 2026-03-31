@@ -6,7 +6,7 @@ import { updateSku } from "../../../controllers/skuController/sku.edit.controlle
 import { hardSkuDelete } from "../../../controllers/skuController/sku.hard.del.controller.js";
 import { listSkus } from "../../../controllers/skuController/sku.getlist.controller.js";
 import { bulkImportSkus } from "../../../controllers/skuController/sku.bulk.import.controller.js";
-import { skuUpload } from "../../../utils/skuUpload.js";
+import { fileUpload } from "../../../utils/file.upload.js";
 
 const router = express.Router();
 
@@ -33,7 +33,7 @@ router.post(
   "/bulk-import",
   requireAuth,
   authorize("admin", "logistics"),
-  skuUpload.single("file"),
+  fileUpload.single("file"),
   bulkImportSkus,
 );
 export default router;

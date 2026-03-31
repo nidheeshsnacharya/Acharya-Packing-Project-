@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
-import XLSX from "xlsx";
+import ExcelJS from "exceljs"; // ✅ safer replacement
 import { Sku } from "../../models/sku.model.js";
 
 /* ==============================
-   HELPERS (Preserved from original)
+   HELPERS
 ============================== */
 const normalizeKey = (key = "") =>
   key
@@ -48,14 +48,9 @@ export const bulkImportSkus = async (req, res) => {
   const user = req.user;
   const file = req.file; // From Multer
 
-  if (!file) {
-    return res.status(400).json({ error: "File is required" });
-  }
-
-  const shopDomain = user.shop_domain;
-  if (!shopDomain) {
+  if (!file) return res.status(400).json({ error: "File is required" });
+  if (!user.shop_domain)
     return res.status(400).json({ error: "User is not linked to any shop" });
-  }
 
   const filePath = file.path;
   let rows = [];
@@ -68,9 +63,19 @@ export const bulkImportSkus = async (req, res) => {
 
     /* 📖 READ FILE */
     if (ext === ".xls" || ext === ".xlsx") {
-      const wb = XLSX.readFile(filePath);
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(filePath);
+      const worksheet = workbook.worksheets[0]; // first sheet
+
+      rows = [];
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        const rowData = {};
+        row.eachCell((cell, colNumber) => {
+          const header = worksheet.getRow(1).getCell(colNumber).value;
+          rowData[header] = cell.value;
+        });
+        if (rowNumber !== 1) rows.push(rowData); // skip header row
+      });
     } else if (ext === ".csv") {
       rows = await new Promise((resolve, reject) => {
         const results = [];
@@ -84,11 +89,9 @@ export const bulkImportSkus = async (req, res) => {
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
-    if (!rows.length) {
-      return res.status(400).json({ error: "No rows found in file" });
-    }
+    if (!rows.length) return res.status(400).json({ error: "No rows found" });
 
-    /* ⚙️ PROCESS ROWS (Original Logic) */
+    /* ⚙️ PROCESS ROWS */
     for (const row of rows) {
       try {
         const sku = pick(row, [
@@ -132,9 +135,8 @@ export const bulkImportSkus = async (req, res) => {
             ? "bundle"
             : "simple";
 
-        // 🔐 DUPLICATE CHECK (SHOP SCOPED)
         const exists = await Sku.findOne({
-          shop_domain: shopDomain,
+          shop_domain: user.shop_domain,
           sku: normalizedSku,
         });
         if (exists) {
@@ -155,11 +157,10 @@ export const bulkImportSkus = async (req, res) => {
             continue;
           }
 
-          // 🔥 Validate child SKUs exist & not bundle
           let validBundle = true;
           for (const item of bundle_items) {
             const child = await Sku.findOne({
-              shop_domain: shopDomain,
+              shop_domain: user.shop_domain,
               sku: item.sku,
             });
             if (!child) {
@@ -178,9 +179,8 @@ export const bulkImportSkus = async (req, res) => {
           if (!validBundle) continue;
         }
 
-        // 💾 SAVE TO DB
         await Sku.create({
-          shop_domain: shopDomain,
+          shop_domain: user.shop_domain,
           sku: normalizedSku,
           product_name: String(product_name).trim(),
           image_url: image_url ? String(image_url).trim() : null,
@@ -202,15 +202,17 @@ export const bulkImportSkus = async (req, res) => {
       }
     }
 
-    return res.status(200).json({
-      success: true,
-      shop_domain: shopDomain,
-      total_rows: rows.length,
-      created,
-      skipped,
-      failed: errors.length,
-      errors,
-    });
+    return res
+      .status(200)
+      .json({
+        success: true,
+        shop_domain: user.shop_domain,
+        total_rows: rows.length,
+        created,
+        skipped,
+        failed: errors.length,
+        errors,
+      });
   } catch (err) {
     return res
       .status(500)
